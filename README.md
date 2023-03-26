@@ -3,15 +3,19 @@
 
 ## Installation
 
-> 1. Clone the repository and navigate to the project directory.
+> 1. Clone the repository by running the following command in your terminal:
 ```
 git clone https://github.com/your-username/RBHZ_RVN_Discord_Metrics.git
 ```
+Make sure to replace "your-username" with your GitHub username.
+
+> 2. Navigate to the project directory by running the following command in your terminal:
 ```
 cd RBHZ_RVN_Discord_Metrics
 ```
+Note that the cd command should be run from the parent directory of the repository, and assumes that the repository has been cloned into a directory named "RBHZ_RVN_Discord_Metrics". If you have named the directory something different, make sure to replace "RBHZ_RVN_Discord_Metrics" with the name of your directory.
 
-> 2. Create a `.env` file and add the following environment variables:
+> 3. Create a `.env` file and add the following environment variables:
 ```
 TOKEN=<your_discord_bot_token_here>
 EMBED_ID=<embed_channel_id>
@@ -25,8 +29,8 @@ WEBSITE_LINK=<website_link>
 ```
 Replace each value with your own values.
 
-> 3. Run INSTALL.bat to install the bot
-> 4. Run LAUNCH.bat to start the bot.
+> 4. Run INSTALL.bat to install the bot
+> 5. Run LAUNCH.bat to start the bot.
 
 ## Configuration
 
