@@ -5,7 +5,7 @@
 
 > 1. Clone the repository and navigate to the project directory.
 ```
-git clone https://github.com/your-username/ravencoin-discord-bot.git
+git clone https://github.com/your-username/RBHZ_RVN_Discord_Metrics.git
 ```
 ```
 cd RBHZ_RVN_Discord_Metrics
