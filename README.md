@@ -8,7 +8,7 @@
 git clone https://github.com/your-username/ravencoin-discord-bot.git
 ```
 ```
-cd ravencoin-discord-bot
+cd RBHZ_RVN_Discord_Metrics
 ```
 
 > 2. Create a `.env` file and add the following environment variables:
