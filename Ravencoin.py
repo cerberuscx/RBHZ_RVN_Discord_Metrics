@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import datetime
+import aiohttp
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -45,11 +46,10 @@ async def on_ready():
     print('----------------------------')
 
     bot.loop.create_task(update_statistics())
-    await asyncio.sleep(900)
 
 @bot.event
 async def update_statistics():
-    last_message_id = None
+    
     guild = bot.guilds[0]
     #Select the channel and init
     channel_id = os.environ.get("CHANNEL_ID")
@@ -57,91 +57,98 @@ async def update_statistics():
     #Select the embed_channel and init
     embed_id = os.environ.get("EMBED_ID")
     embed_channel = bot.get_channel(int(embed_id))
-    # Clear the channel when the bot joins
+    # Get the last message in the channel and delete it if it was sent by the bot when the bot connects
     message = None
-    async for message in embed_channel.history(limit=0):
-        await message.delete()
-    
-    while True:
-        try:
-            now = datetime.datetime.now()
-            session = requests.Session()
+    async for msg in embed_channel.history(limit=100):
+        if msg.author == bot.user:  # Check if the message author is the bot itself
+            await msg.delete()
+            break
             
-            #Get the current RVN price
+    async with aiohttp.ClientSession() as session:
+        while True:
             try:
-                r = session.get(URL, timeout=30)
-                r.raise_for_status()
-                data = r.json()
-                price = data['ravencoin']['usd']
-            except requests.exceptions.RequestException as e:
-                print(f'Error getting RVN price: {e}')
-                continue
+                now = datetime.datetime.now()
 
-            #Update Bot activity
-            activity = discord.Activity(name=f'RVN: ${price:,.5f} USD', type=discord.ActivityType.watching)
-            await bot.change_presence(activity=activity)
-            
-            #Update channel name 
-            channel_name = f'RVN - ${price:,.5f} USD'
-            await channel.edit(name=channel_name)
-            
-            try:
-                response = session.get(url, timeout=30)
-                response.raise_for_status()
-                data = response.json()
-                price = data['market_data']['current_price']['usd']
-                mcap = data['market_data']['market_cap']['usd']
-                supply = data['market_data']['circulating_supply']
-                volume = data['market_data']['total_volume']['usd']
-                change = data['market_data']['price_change_percentage_24h']
-                block_time = data['block_time_in_minutes']
-            except requests.exceptions.RequestException as e:
-                print(f'Error getting market data: {e}')
-                continue
+                # Get the current RVN price
+                async with session.get(URL, timeout=120) as r:
+                    if r.status == 429:  # Check if rate limit was exceeded
+                        # Get the Retry-After header to determine when to retry the request
+                        retry_after = int(r.headers.get('Retry-After', '1'))
+                        logger.warning(f'Rate limit exceeded. Retrying after {retry_after} seconds.')
+                        await asyncio.sleep(retry_after)
+                        continue
+                    r.raise_for_status()
+                    data = await r.json()
+                    price = data['ravencoin']['usd']
 
-            # embed RVN stats to discord embed_channel
-            embed = discord.Embed(
-                title = 'Ravencoin Price & Statistics',
-                description = description,
-                colour = discord.Colour.orange()
-            )
-            # add the image as the thumbnail
-            embed.set_thumbnail(url=thumbnail_url)
-            embed.set_author(name='', icon_url=thumbnail_url)
-            # add the image to the body of the embed
-            embed.set_image(url=image_url)
-            embed.add_field(name = 'Price', value = f'${price:,.5f}')
-            embed.add_field(name = '24 Hour Change', value = f'{data["market_data"]["price_change_percentage_24h"]:,.2f}%')
-            embed.add_field(name = '24 Hour Volume', value = f'${data["market_data"]["total_volume"]["usd"]:,.0f}')
-            embed.add_field(name = 'Market Cap', value = f'${mcap:,.0f}')
-            embed.add_field(name = 'Circulating Supply', value = f'{supply:,.0f} RVN')
-            embed.add_field(name = 'Block Time (minutes)', value = f'{block_time}')
-            embed.add_field(name = f'{guild.name} Website', value = f'[{website_link}]({website_link})\n\n'
-                                        '[Asset Explorer](https://ravencoin.asset-explorer.net/)\n'
-                                        '[RVN Dashboard](https://www.rvn-dashboard.com/)\n'
-                                        '[Whitepaper](https://ravencoin.org/assets/documents/Ravencoin.pdf)',
-                                        inline=False)
-            embed.add_field(name = 'Source', value = f'[Coingecko](https://www.coingecko.com/en/coins/ravencoin)')
-            embed.set_footer(text=f'Last updated on {now.strftime("%B %d, %Y at %H:%M")}\nby RVN Bounty HunterZ', icon_url=author_url)
-            
-            if message and message.id != last_message_id:
-                await message.edit(embed=embed)
-            elif not message:
-                message = await embed_channel.send(embed=embed)
-                last_message_id = message.id
+                # Update Bot activity
+                activity = discord.Activity(name=f'RVN: ${price:,.5f} USD', type=discord.ActivityType.watching)
+                await bot.change_presence(activity=activity)
+                
+                # Update channel name
+                channel_name = f'RVN - ${price:,.5f} USD'
+                await channel.edit(name=channel_name)
 
-            await asyncio.sleep(update_interval)
-            
-        except Exception as e:
-            print(f'Error: {e}')
-            await asyncio.sleep(30)
-            message = None
+                async with session.get(url, timeout=120) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    price = data['market_data']['current_price']['usd']
+                    mcap = data['market_data']['market_cap']['usd']
+                    supply = data['market_data']['circulating_supply']
+                    volume = data['market_data']['total_volume']['usd']
+                    change = data['market_data']['price_change_percentage_24h']
+                    block_time = data['block_time_in_minutes']
+
+                # embed RVN stats to discord embed_channel
+                embed = discord.Embed(
+                    title = 'Ravencoin Price & Statistics',
+                    description = description,
+                    colour = discord.Colour.orange()
+                )
+                # add the image as the thumbnail
+                embed.set_thumbnail(url=thumbnail_url)
+                embed.set_author(name='', icon_url=thumbnail_url)
+                # add the image to the body of the embed
+                embed.set_image(url=image_url)
+                embed.add_field(name = 'Price', value = f'${price:,.5f}')
+                embed.add_field(name = '24 Hour Change', value = f'{data["market_data"]["price_change_percentage_24h"]:,.2f}%')
+                embed.add_field(name = '24 Hour Volume', value = f'${data["market_data"]["total_volume"]["usd"]:,.0f}')
+                embed.add_field(name = 'Market Cap', value = f'${mcap:,.0f}')
+                embed.add_field(name = 'Circulating Supply', value = f'{supply:,.0f} RVN')
+                embed.add_field(name = 'Block Time (minutes)', value = f'{block_time}')
+                embed.add_field(name = f'{guild.name} Website', value = f'[{website_link}]({website_link})\n\n'
+                                            '[Asset Explorer](https://ravencoin.asset-explorer.net/)\n'
+                                            '[RVN Dashboard](https://www.rvn-dashboard.com/)\n'
+                                            '[Whitepaper](https://ravencoin.org/assets/documents/Ravencoin.pdf)',
+                                            inline=False)
+                embed.add_field(name='Source', value=f'[Coingecko](https://www.coingecko.com/en/coins/ravencoin)')
+                embed.set_footer(text=f'Last updated on {now.strftime("%B %d, %Y at %H:%M")}\nby RVN Bounty HunterZ', icon_url=author_url)
+
+                if message:
+                    await message.edit(embed=embed)
+                else:
+                    message = await embed_channel.send(embed=embed)
+
+                await asyncio.sleep(update_interval)
+
+            except aiohttp.ClientError as e:
+                logger.error("An error occurred while getting market data", exc_info=True)
+                await asyncio.sleep(30)
+                message = None
+            except Exception as e:
+                logger.error("An unexpected error occurred", exc_info=True)
+                await asyncio.sleep(30)
+                message = None
+            else:
+                logger.info("RVN stats were successfully updated.")
+            finally:
+                await session.close()
 
 @bot.event
 async def on_disconnect():
-    logger.warning('Disconnected')
+    logger.warning("The bot has been disconnected")
 
 try:
     bot.run(TOKEN)
 except Exception as e:
-    logger.error(e)
+    logger.error("An unexpected error occurred", exc_info=True)
