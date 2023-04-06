@@ -23,7 +23,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 # create a client object 
-bot = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 URL = 'https://api.coingecko.com/api/v3/simple/price?ids=ravencoin&vs_currencies=usd'
 url = 'https://api.coingecko.com/api/v3/coins/ravencoin'
@@ -47,47 +47,49 @@ async def on_ready():
 
     bot.loop.create_task(update_statistics())
 
-@bot.event
+async def fetch_rvn_data(session):
+    async with session.get(URL, timeout=120) as r:
+        if r.status == 429:
+            retry_after = int(r.headers.get('Retry-After', '1'))
+            logger.warning(f'Rate limit exceeded. Retrying after {retry_after} seconds.')
+            await asyncio.sleep(retry_after)
+            return None
+        r.raise_for_status()
+        data = await r.json()
+        price = data['ravencoin']['usd']
+    return price
+
+async def update_bot_activity(price):
+    activity = discord.Activity(name=f'RVN: ${price:,.5f} USD', type=discord.ActivityType.watching)
+    await bot.change_presence(activity=activity)
+
+async def send_embed(embed_channel, embed):
+    message = await embed_channel.send(embed=embed)
+    return message
+
 async def update_statistics():
-    
     guild = bot.guilds[0]
-    #Select the channel and init
     channel_id = os.environ.get("CHANNEL_ID")
     channel = bot.get_channel(int(channel_id))
-    #Select the embed_channel and init
     embed_id = os.environ.get("EMBED_ID")
     embed_channel = bot.get_channel(int(embed_id))
-    # Get the last message in the channel and delete it if it was sent by the bot when the bot connects
+
     message = None
     async for msg in embed_channel.history(limit=100):
-        if msg.author == bot.user:  # Check if the message author is the bot itself
+        if msg.author == bot.user:
             await msg.delete()
             break
-            
+
     async with aiohttp.ClientSession() as session:
         while True:
             try:
                 now = datetime.datetime.now()
+                price = await fetch_rvn_data(session)
 
-                # Get the current RVN price
-                async with session.get(URL, timeout=120) as r:
-                    if r.status == 429:  # Check if rate limit was exceeded
-                        # Get the Retry-After header to determine when to retry the request
-                        retry_after = int(r.headers.get('Retry-After', '1'))
-                        logger.warning(f'Rate limit exceeded. Retrying after {retry_after} seconds.')
-                        await asyncio.sleep(retry_after)
-                        continue
-                    r.raise_for_status()
-                    data = await r.json()
-                    price = data['ravencoin']['usd']
-
-                # Update Bot activity
-                activity = discord.Activity(name=f'RVN: ${price:,.5f} USD', type=discord.ActivityType.watching)
-                await bot.change_presence(activity=activity)
-                
-                # Update channel name
-                channel_name = f'RVN - ${price:,.5f} USD'
-                await channel.edit(name=channel_name)
+                if price is not None:
+                    await update_bot_activity(price)
+                    channel_name = f'RVN - ${price:,.5f} USD'
+                    await channel.edit(name=channel_name)
 
                 async with session.get(url, timeout=120) as response:
                     response.raise_for_status()
@@ -125,9 +127,9 @@ async def update_statistics():
                 embed.set_footer(text=f'Last updated on {now.strftime("%B %d, %Y at %H:%M")}\nby RVN Bounty HunterZ', icon_url=author_url)
 
                 if message:
-                    await message.edit(embed=embed)
+                        await message.edit(embed=embed)
                 else:
-                    message = await embed_channel.send(embed=embed)
+                        message = await send_embed(embed_channel, embed)
 
                 await asyncio.sleep(update_interval)
 
@@ -141,12 +143,19 @@ async def update_statistics():
                 message = None
             else:
                 logger.info("RVN stats were successfully updated.")
-            finally:
-                await session.close()
 
 @bot.event
 async def on_disconnect():
     logger.warning("The bot has been disconnected")
+
+@bot.command()
+async def price(ctx):
+    async with aiohttp.ClientSession() as session:
+        price = await fetch_rvn_data(session)
+        if price is not None:
+            await ctx.send(f"Current RVN price: ${price:,.5f} USD")
+        else:
+            await ctx.send("Failed to fetch RVN price. Please try again later.")
 
 try:
     bot.run(TOKEN)
